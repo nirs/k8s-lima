@@ -145,18 +145,25 @@ sed -i 's/^  name: local-path$/  name: standard/g' local-path-storage.yaml
 # Apply the modified YAML
 kubectl apply -f local-path-storage.yaml
 kubectl annotate sc/standard storageclass.kubernetes.io/is-default-class="true"
+
 KUBE_VERSION="${1:-1.30.0}"
 function log {
   echo "=====  $*  ====="
 }
+
+## external snapshoter
+
 # Determine the Kube minor version
-[[ "${KUBE_VERSION}" =~ ^[0-9]+\.([0-9]+) ]] && KUBE_MINOR="${BASH_REMATCH[1]}" || exit 1
-log "Detected kubernetes minor version: ${KUBE_MINOR}"
 TAG="v7.0.1"  # https://github.com/kubernetes-csi/external-snapshotter/releases
 log "Deploying external snapshotter: ${TAG}"
 kubectl create -k "https://github.com/kubernetes-csi/external-snapshotter/client/config/crd?ref=${TAG}"
 kubectl create -n kube-system -k "https://github.com/kubernetes-csi/external-snapshotter/deploy/kubernetes/snapshot-controller?ref=${TAG}"
-# Install the hostpath CSI driver
+
+## Install the hostpath CSI driver
+
+[[ "${KUBE_VERSION}" =~ ^[0-9]+\.([0-9]+) ]] && KUBE_MINOR="${BASH_REMATCH[1]}" || exit 1
+log "Detected kubernetes minor version: ${KUBE_MINOR}"
+
 # https://github.com/kubernetes-csi/csi-driver-host-path/releases
 HP_BASE="$(mktemp --tmpdir -d csi-driver-host-path-XXXXXX)"
 TAG="v1.12.1"
@@ -188,12 +195,17 @@ allowVolumeExpansion: true
 SC
 touch /root/hostpath.completed
 
-# Submariner
+## Submariner
+
 node=$(kubectl get nodes -o name | cut -d"/" -f2)
 kubectl annotate node $node gateway.submariner.io/public-ip=ipv4:${k8sIP}
 
+## Rook
+
+# Not needed, rook creates the directory
 mkdir -p /data
 
-kubectl get cm -n kube-system kube-proxy -o yaml | sed 's/masqueradeAll: false/masqueradeAll: true/g' > kubeproxy
-kubectl apply -f kubeproxy
+# Why this is needed?
+kubectl get cm -n kube-system kube-proxy -o yaml | sed 's/masqueradeAll: false/masqueradeAll: true/g' > kube-proxy.yaml
+kubectl apply -f kube-proxy.yaml
 kubectl delete pod -n kube-system -l k8s-app=kube-proxy
